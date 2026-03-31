@@ -169,7 +169,7 @@ sudo pacman -S --needed --noconfirm fastfetch
 # 11. Run debloat
 # -------------------------------------------------------
 echo "==> Running debloat..."
-bash ~/kde-debloat.sh
+bash "$(dirname "$0")/kde-debloat.sh"
 
 echo ""
 echo "=============================================="
