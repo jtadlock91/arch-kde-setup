@@ -84,14 +84,122 @@ sudo pacman -S --needed --noconfirm \
     cantarell-fonts
 
 # -------------------------------------------------------
-# 6. GPU drivers (covers AMD, Intel, basic Nvidia)
+# 6. GPU drivers — auto-detected
 # -------------------------------------------------------
+echo "==> Detecting GPU..."
+
+HAS_AMD_HW=false
+HAS_NVIDIA_HW=false
+HAS_INTEL_HW=false
+
+lspci | grep -E "VGA|3D|Display" | grep -qiE "\bAMD\b|\bATI\b|Radeon" && HAS_AMD_HW=true
+lspci | grep -E "VGA|3D|Display" | grep -qiE "\bNVIDIA\b" && HAS_NVIDIA_HW=true
+lspci | grep -E "VGA|3D|Display" | grep -qiE "\bIntel\b" && HAS_INTEL_HW=true
+
+GPU_VENDOR="unknown"
+if [ "$HAS_AMD_HW" = "true" ] && [ "$HAS_NVIDIA_HW" = "false" ]; then
+    GPU_VENDOR="amd"
+elif [ "$HAS_NVIDIA_HW" = "true" ] && [ "$HAS_INTEL_HW" = "true" ] && [ "$HAS_AMD_HW" = "false" ]; then
+    GPU_VENDOR="nvidia_hybrid"
+elif [ "$HAS_NVIDIA_HW" = "true" ] && [ "$HAS_INTEL_HW" = "false" ] && [ "$HAS_AMD_HW" = "false" ]; then
+    GPU_VENDOR="nvidia"
+elif [ "$HAS_INTEL_HW" = "true" ] && [ "$HAS_NVIDIA_HW" = "false" ] && [ "$HAS_AMD_HW" = "false" ]; then
+    GPU_VENDOR="intel"
+elif [ "$HAS_AMD_HW" = "true" ] && [ "$HAS_NVIDIA_HW" = "true" ]; then
+    GPU_VENDOR="amd"
+fi
+
+echo "    [DETECTED] $GPU_VENDOR"
 echo "==> Installing GPU drivers..."
-sudo pacman -S --needed --noconfirm \
-    mesa \
-    vulkan-radeon \
-    libva-mesa-driver \
-    libva-utils
+
+# Always install mesa base
+sudo pacman -S --needed --noconfirm mesa libva-utils
+
+case "$GPU_VENDOR" in
+    amd)
+        sudo pacman -S --needed --noconfirm \
+            vulkan-radeon libva-mesa-driver mesa-vdpau radeontop
+        ;;
+    nvidia)
+        KERNEL=$(uname -r)
+        # Check if CachyOS repos are present — they use versioned nvidia packages
+        if pacman -Sl cachyos &>/dev/null 2>&1; then
+            echo "    [INFO] CachyOS repos detected — using versioned Nvidia packages."
+            echo "    Available Nvidia versions:"
+            pacman -Ss "^nvidia-[0-9]" 2>/dev/null | grep -E "cachyos.*nvidia-[0-9]" | \
+                awk '{print "      " $1}' | head -6
+            echo "    Installing latest available CachyOS Nvidia series..."
+            # Try 580xx first, fall back to 550xx, then 535xx
+            if pacman -Si cachyos/nvidia-580xx-dkms &>/dev/null 2>&1; then
+                sudo pacman -S --needed --noconfirm \
+                    nvidia-580xx-dkms nvidia-580xx-utils \
+                    lib32-nvidia-580xx-utils opencl-nvidia-580xx nvidia-settings
+            elif pacman -Si cachyos/nvidia-550xx-dkms &>/dev/null 2>&1; then
+                sudo pacman -S --needed --noconfirm \
+                    nvidia-550xx-dkms nvidia-550xx-utils \
+                    lib32-nvidia-550xx-utils opencl-nvidia-550xx nvidia-settings
+            else
+                sudo pacman -S --needed --noconfirm \
+                    nvidia-535xx-dkms nvidia-535xx-utils \
+                    lib32-nvidia-535xx-utils opencl-nvidia-535xx nvidia-settings
+            fi
+        else
+            # Standard Arch repos — use generic nvidia package
+            if echo "$KERNEL" | grep -qE "cachyos|zen|tkg"; then
+                sudo pacman -S --needed --noconfirm nvidia-dkms nvidia-utils lib32-nvidia-utils opencl-nvidia nvidia-settings
+            else
+                sudo pacman -S --needed --noconfirm nvidia nvidia-utils lib32-nvidia-utils opencl-nvidia nvidia-settings
+            fi
+        fi
+        echo "    [INFO] Add nvidia_drm.modeset=1 to GRUB_CMDLINE_LINUX_DEFAULT for Wayland."
+        ;;
+    nvidia_hybrid)
+        KERNEL=$(uname -r)
+        sudo pacman -S --needed --noconfirm vulkan-intel intel-media-driver
+        if pacman -Sl cachyos &>/dev/null 2>&1; then
+            echo "    [INFO] CachyOS repos detected — using versioned Nvidia packages."
+            if pacman -Si cachyos/nvidia-580xx-dkms &>/dev/null 2>&1; then
+                sudo pacman -S --needed --noconfirm \
+                    nvidia-580xx-dkms nvidia-580xx-utils \
+                    lib32-nvidia-580xx-utils opencl-nvidia-580xx nvidia-settings
+            elif pacman -Si cachyos/nvidia-550xx-dkms &>/dev/null 2>&1; then
+                sudo pacman -S --needed --noconfirm \
+                    nvidia-550xx-dkms nvidia-550xx-utils \
+                    lib32-nvidia-550xx-utils opencl-nvidia-550xx nvidia-settings
+            else
+                sudo pacman -S --needed --noconfirm \
+                    nvidia-535xx-dkms nvidia-535xx-utils \
+                    lib32-nvidia-535xx-utils opencl-nvidia-535xx nvidia-settings
+            fi
+        else
+            if echo "$KERNEL" | grep -qE "cachyos|zen|tkg"; then
+                sudo pacman -S --needed --noconfirm nvidia-dkms nvidia-utils lib32-nvidia-utils opencl-nvidia nvidia-settings
+            else
+                sudo pacman -S --needed --noconfirm nvidia nvidia-utils lib32-nvidia-utils opencl-nvidia nvidia-settings
+            fi
+        fi
+        if command -v yay &>/dev/null; then
+            yay -S --needed --noconfirm envycontrol
+        elif command -v paru &>/dev/null; then
+            paru -S --needed --noconfirm envycontrol
+        else
+            echo "    [WARN] Install envycontrol manually: yay -S envycontrol && sudo envycontrol -s hybrid"
+        fi
+        if command -v envycontrol &>/dev/null; then
+            # envycontrol looks for dracut-rebuild which doesn't exist on EndeavourOS
+            # run it ignoring the initramfs error then rebuild manually
+            sudo envycontrol -s hybrid 2>/dev/null || true
+            sudo dracut --force 2>/dev/null || true
+            echo "    [OK] envycontrol set to hybrid mode."
+        fi
+        ;;
+    intel)
+        sudo pacman -S --needed --noconfirm vulkan-intel intel-media-driver libva-intel-driver
+        ;;
+    *)
+        echo "    [WARN] GPU not detected — only mesa installed."
+        ;;
+esac
 
 # -------------------------------------------------------
 # 7. Performance
@@ -166,10 +274,29 @@ sudo systemctl enable fstrim.timer
 sudo pacman -S --needed --noconfirm fastfetch
 
 # -------------------------------------------------------
-# 11. Run debloat
+# 11. Run debloat (optional)
 # -------------------------------------------------------
-echo "==> Running debloat..."
-bash "$(dirname "$0")/kde-debloat.sh"
+# Look for kde-debloat.sh in same folder as this script,
+# then fall back to ~/Downloads
+DEBLOAT_SCRIPT="$(dirname "$0")/kde-debloat.sh"
+if [ ! -f "$DEBLOAT_SCRIPT" ]; then
+    DEBLOAT_SCRIPT="$HOME/Downloads/kde-debloat.sh"
+fi
+
+if [ -f "$DEBLOAT_SCRIPT" ]; then
+    echo -n "==> kde-debloat.sh found. Run it now? [y/N]: "
+    read -r RUN_DEBLOAT
+    if [[ "$RUN_DEBLOAT" =~ ^[Yy]$ ]]; then
+        bash "$DEBLOAT_SCRIPT"
+    else
+        echo "    [SKIP] Run kde-debloat.sh manually when ready."
+    fi
+else
+    echo "==> kde-debloat.sh not found — run it manually after reboot."
+    echo "    Expected locations:"
+    echo "      Same folder as this script"
+    echo "      ~/Downloads/kde-debloat.sh"
+fi
 
 echo ""
 echo "=============================================="
