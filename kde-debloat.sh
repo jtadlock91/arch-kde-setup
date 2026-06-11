@@ -394,6 +394,82 @@ if ! pacman -Qi dracut &>/dev/null; then
 fi
 
 # -------------------------------------------------------
+# 2b. Installer residue — EndeavourOS pulls in every
+#     filesystem/RAID tool and legacy firmware "just in
+#     case". Remove what this hardware doesn't need.
+#
+# NOTE — permanent fixtures, do NOT add these here:
+#   mdadm        ← libblockdev-mdraid ← udisks2 (hard dep;
+#                  udisks2 is what lets Dolphin mount USB drives)
+#   modemmanager ← modemmanager-qt ← plasma-nm (hard dep)
+#   stress       ← s-tui depends on it for stress-test mode
+# -------------------------------------------------------
+echo ""
+echo "==> [2b]  Removing installer residue (hardware-guarded)..."
+
+# Unconditional: RAID/detection helpers, legacy daemons,
+# terminal mail client, duplicate fonts
+RESIDUE=(
+    dmraid
+    hwdetect
+    haveged
+    s-nail
+    usb_modeswitch
+    alsa-firmware
+    ttf-bitstream-vera
+    ttf-opensans
+)
+for pkg in "${RESIDUE[@]}"; do
+    safe_remove "$pkg"
+done
+
+# Filesystem tools — only remove if no mounted/formatted
+# filesystem of that type exists on this machine
+FSTYPES_IN_USE=$(lsblk -fno FSTYPE 2>/dev/null | sort -u)
+declare -A FS_TOOLS=(
+    [jfs]="jfsutils"
+    [nilfs2]="nilfs-utils"
+    [f2fs]="f2fs-tools"
+    [xfs]="xfsprogs"
+)
+for fstype in "${!FS_TOOLS[@]}"; do
+    if echo "$FSTYPES_IN_USE" | grep -qx "$fstype"; then
+        echo "    [SKIP - $fstype filesystem in use] ${FS_TOOLS[$fstype]}"
+    else
+        safe_remove "${FS_TOOLS[$fstype]}"
+    fi
+done
+
+# sof-firmware — required for Intel laptop audio, useless on AMD
+if lspci 2>/dev/null | grep -i audio | grep -qi intel; then
+    echo "    [SKIP - Intel audio detected] sof-firmware"
+else
+    safe_remove "sof-firmware"
+fi
+
+# b43-fwcutter — only needed for Broadcom wireless
+if lspci 2>/dev/null | grep -qi broadcom; then
+    echo "    [SKIP - Broadcom hardware detected] b43-fwcutter"
+else
+    safe_remove "b43-fwcutter"
+fi
+
+# ntp — redundant when systemd-timesyncd is handling time sync
+if systemctl is-enabled systemd-timesyncd &>/dev/null; then
+    safe_remove "ntp"
+else
+    echo "    [SKIP - systemd-timesyncd not enabled] ntp"
+fi
+
+# power-profiles-daemon — redundant when TLP or auto-cpufreq
+# manages power (laptop masks ppd; desktop uses auto-cpufreq)
+if pacman -Qi tlp &>/dev/null || pacman -Qi auto-cpufreq &>/dev/null; then
+    safe_remove "power-profiles-daemon"
+else
+    echo "    [SKIP - no TLP/auto-cpufreq present] power-profiles-daemon"
+fi
+
+# -------------------------------------------------------
 # 3. Orphan cleanup — with protected package guard
 # -------------------------------------------------------
 echo ""
@@ -523,6 +599,8 @@ echo ""
 echo " Removed:"
 echo "  - All KDE bloat apps and games"
 echo "  - All EndeavourOS specific packages"
+echo "  - Installer residue (unused fs tools, legacy"
+echo "    firmware, redundant daemons — hardware-guarded)"
 echo "  - Unused X11/Xorg packages"
 echo ""
 echo " Reboot when ready."
