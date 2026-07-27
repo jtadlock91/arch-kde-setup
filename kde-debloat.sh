@@ -33,6 +33,10 @@
 #   - Post-removal verification with auto-reinstall
 #   - Aborts immediately if anything critical is missing
 #
+# Also disables the KWallet subsystem (not just kwalletmanager/
+# kwallet-pam packages) and wraps Vivaldi with --password-store=basic
+# so it doesn't prompt to use the now-disabled wallet.
+#
 # REQUIREMENTS:
 #   - Arch Linux, EndeavourOS, CachyOS or any Arch-based distro
 #   - KDE Plasma 6 already installed
@@ -162,7 +166,6 @@ PROTECTED=(
     breeze-gtk
     breeze-icons
     polkit-kde-agent
-    kwallet-pam
     xdg-desktop-portal
     xdg-desktop-portal-kde
     xdg-user-dirs
@@ -175,6 +178,7 @@ PROTECTED=(
     kitty
     spectacle
     klipper
+    haruna
 
     # Audio — every component needed
     pipewire
@@ -281,7 +285,7 @@ safe_remove() {
 # 1. Remove KDE bloat — one package at a time so a
 #    single failure never aborts the whole sweep
 # -------------------------------------------------------
-echo "==> [1/5] Removing KDE application packages..."
+echo "==> [1/6] Removing KDE application packages..."
 
 BLOAT=(
     # PIM / Akonadi stack
@@ -290,7 +294,7 @@ BLOAT=(
     kalarm kmail korganizer kontact kaddressbook
     knotes ktnef mbox-importer pim-data-exporter
     pim-sieve-editor kdepim-addons kdepim-runtime
-    kwalletmanager
+    kwalletmanager kwallet-pam
 
     # Utilities
     ark gwenview okular kate kwrite
@@ -337,11 +341,12 @@ BLOAT=(
 
     # Misc bloat
     meld
-    haruna
     pavucontrol
     plasma-systemmonitor
     kgamma
     plasma-keyboard
+    discover
+    plasma-welcome
 )
 
 for pkg in "${BLOAT[@]}"; do
@@ -359,7 +364,7 @@ fi
 # 2. Remove EndeavourOS-specific packages if present
 # -------------------------------------------------------
 echo ""
-echo "==> [2/5] Removing EndeavourOS packages if present..."
+echo "==> [2/6] Removing EndeavourOS packages if present..."
 
 EOS_PACKAGES=(
     reflector-simple
@@ -473,7 +478,7 @@ fi
 # 3. Orphan cleanup — with protected package guard
 # -------------------------------------------------------
 echo ""
-echo "==> [3/5] Cleaning orphaned packages (protected packages are safe)..."
+echo "==> [3/6] Cleaning orphaned packages (protected packages are safe)..."
 
 for pass in 1 2 3; do
     ORPHANS=$(pacman -Qdtq 2>/dev/null || true)
@@ -505,7 +510,7 @@ done
 # 4. Ensure systemd services are correct
 # -------------------------------------------------------
 echo ""
-echo "==> [4/5] Verifying systemd services..."
+echo "==> [4/6] Verifying systemd services..."
 
 # Display manager
 if systemctl is-enabled sddm &>/dev/null; then
@@ -546,7 +551,7 @@ done
 # 5. Post-removal verification — reinstall anything missing
 # -------------------------------------------------------
 echo ""
-echo "==> [5/5] Post-removal verification..."
+echo "==> [5/6] Post-removal verification..."
 VERIFY=(
     plasma-desktop kwin krunner dolphin kitty
     pipewire pipewire-alsa pipewire-pulse wireplumber
@@ -570,6 +575,47 @@ for pkg in "${VERIFY[@]}"; do
 done
 
 # -------------------------------------------------------
+# 6. Disable the KWallet subsystem itself
+# Removing kwalletmanager/kwallet-pam above only removes the
+# GUI and the login auto-unlock hook — KWallet itself would
+# still activate on demand via D-Bus and prompt apps to use it.
+# This is the actual off-switch, matching the NixOS setup.
+# -------------------------------------------------------
+echo ""
+echo "==> [6/6] Disabling KWallet subsystem..."
+
+mkdir -p "$HOME/.config"
+if [ -f "$HOME/.config/kwalletrc" ] && grep -q "^\[Wallet\]" "$HOME/.config/kwalletrc"; then
+    sed -i '/^\[Wallet\]/,/^\[/ s/^Enabled=.*/Enabled=false/' "$HOME/.config/kwalletrc"
+    grep -q "^Enabled=false" "$HOME/.config/kwalletrc" || printf '\n[Wallet]\nEnabled=false\n' >> "$HOME/.config/kwalletrc"
+else
+    printf '[Wallet]\nEnabled=false\n' >> "$HOME/.config/kwalletrc"
+fi
+echo "    [OK] KWallet subsystem disabled for $USER (~/.config/kwalletrc)."
+
+# System-wide default too, for defense-in-depth / future users
+sudo mkdir -p /etc/xdg
+if ! sudo grep -q "^\[Wallet\]" /etc/xdg/kwalletrc 2>/dev/null; then
+    printf '[Wallet]\nEnabled=false\n' | sudo tee -a /etc/xdg/kwalletrc > /dev/null
+    echo "    [OK] System-wide default written to /etc/xdg/kwalletrc."
+fi
+
+# Vivaldi: stop it from prompting to use the (now-disabled) wallet.
+# Uses Arch's vivaldi-stable.conf mechanism — read directly by the
+# wrapper script, so it survives package updates (unlike editing
+# the .desktop file, which pacman overwrites on every upgrade).
+if command -v vivaldi-stable &>/dev/null || pacman -Qi vivaldi &>/dev/null; then
+    if ! grep -q "password-store" "$HOME/.config/vivaldi-stable.conf" 2>/dev/null; then
+        echo "--password-store=basic" >> "$HOME/.config/vivaldi-stable.conf"
+        echo "    [OK] Vivaldi set to --password-store=basic (~/.config/vivaldi-stable.conf)."
+    else
+        echo "    [SKIP] vivaldi-stable.conf already sets a password-store flag."
+    fi
+else
+    echo "    [SKIP] Vivaldi not installed — nothing to wrap."
+fi
+
+# -------------------------------------------------------
 # Done
 # -------------------------------------------------------
 echo ""
@@ -584,7 +630,7 @@ fi
 echo ""
 echo " Kept:"
 echo "  - Plasma desktop, KWin, KRunner"
-echo "  - Dolphin, Kitty, Spectacle, Klipper"
+echo "  - Dolphin, Kitty, Spectacle, Klipper, Haruna"
 echo "  - Steam, Vivaldi (never touched)"
 echo "  - PipeWire full audio stack"
 echo "  - NetworkManager + plasma-nm tray"
@@ -595,6 +641,7 @@ echo "  - Wayland + Qt Wayland support"
 echo "  - gamemode, auto-cpufreq, ananicy-cpp"
 echo "  - snapper + snap-pac + grub-btrfs"
 echo "  - JetBrains Mono Nerd Font"
+echo "  - KWallet subsystem: disabled (Vivaldi uses basic password store)"
 echo ""
 echo " Removed:"
 echo "  - All KDE bloat apps and games"

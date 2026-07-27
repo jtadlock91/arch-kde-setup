@@ -6,8 +6,45 @@
 
 set -e
 
+# -------------------------------------------------------
+# 0. KDE Unstable (bleeding-edge Plasma / KDE Gear)
+# -------------------------------------------------------
+# Must be listed above [core]/[extra] in pacman.conf — pacman
+# gives priority to whichever repo is listed first when a
+# package exists in more than one. extra-testing/core-testing
+# are included because kde-unstable frequently needs newer Qt
+# libs than what's in stable extra (e.g. KDE Gear 26.03 needed
+# Qt 6.11 from extra-testing before it would even launch).
+#
+# Tradeoff, deliberate: this takes priority over CachyOS's
+# znver4-optimized builds for KDE packages specifically, since
+# CachyOS only optimizes stable-repo packages, not kde-unstable.
+# Expect occasional breakage (dependency conflicts, an app not
+# launching for a day) — that's normal for this repo, not a
+# sign something's misconfigured. Revert any time by commenting
+# out these three blocks in /etc/pacman.conf and re-running
+# `sudo pacman -Syyu`.
+# -------------------------------------------------------
+echo "==> Enabling kde-unstable + extra-testing + core-testing (bleeding-edge Plasma)..."
+
+if ! grep -q "^\[kde-unstable\]" /etc/pacman.conf; then
+    sudo sed -i '/^\[core\]/i\
+[kde-unstable]\
+Include = /etc/pacman.d/mirrorlist\
+\
+[extra-testing]\
+Include = /etc/pacman.d/mirrorlist\
+\
+[core-testing]\
+Include = /etc/pacman.d/mirrorlist\
+' /etc/pacman.conf
+    echo "    [OK] kde-unstable, extra-testing, core-testing added above [core]."
+else
+    echo "    [SKIP] kde-unstable already present in pacman.conf."
+fi
+
 echo "==> Updating system..."
-sudo pacman -Syu --noconfirm
+sudo pacman -Syyu --noconfirm
 
 # -------------------------------------------------------
 # 1. KDE Plasma barebones
@@ -178,10 +215,11 @@ case "$GPU_VENDOR" in
                 sudo pacman -S --needed --noconfirm nvidia nvidia-utils lib32-nvidia-utils opencl-nvidia nvidia-settings
             fi
         fi
+        echo "    [INFO] Installing envycontrol from AUR — review the PKGBUILD shown before confirming."
         if command -v yay &>/dev/null; then
-            yay -S --needed --noconfirm envycontrol
+            yay -S --needed envycontrol
         elif command -v paru &>/dev/null; then
-            paru -S --needed --noconfirm envycontrol
+            paru -S --needed envycontrol
         else
             echo "    [WARN] Install envycontrol manually: yay -S envycontrol && sudo envycontrol -s hybrid"
         fi

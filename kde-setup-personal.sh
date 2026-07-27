@@ -62,11 +62,16 @@ sudo systemctl enable auto-cpufreq
 sudo systemctl enable irqbalance
 
 # ananicy-cpp from AUR
+# NOTE: no --noconfirm here on purpose. AUR had a large orphaned-package
+# supply-chain compromise in June 2026 ("Atomic Arch", 1,500+ packages).
+# Letting paru/yay show the PKGBUILD diff before building is the one
+# practical check that actually catches this — review it before confirming.
+echo "[INFO] Installing ananicy-cpp from AUR — review the PKGBUILD shown before confirming."
 if command -v paru &>/dev/null; then
-    paru -S --needed --noconfirm ananicy-cpp
+    paru -S --needed ananicy-cpp
     sudo systemctl enable ananicy-cpp
 elif command -v yay &>/dev/null; then
-    yay -S --needed --noconfirm ananicy-cpp
+    yay -S --needed ananicy-cpp
     sudo systemctl enable ananicy-cpp
 else
     echo "[WARN] No AUR helper found — install ananicy-cpp manually"
@@ -85,13 +90,58 @@ else
     echo "[SKIP] BORE not available — reboot into CachyOS kernel first."
 fi
 
+# -------------------------------------------------------
+# 6. Claude Desktop + Cowork VM prerequisites
+# -------------------------------------------------------
+# Anthropic shipped an official Linux beta (June 30, 2026) — Ubuntu/
+# Debian only, officially. aaddrick/claude-desktop-debian repackages
+# that same official .deb for Arch via AUR (claude-desktop-unofficial),
+# rather than reconstructing the app from scratch. Cowork on Linux
+# runs on a KVM-backed VM; installing the same stack proven working
+# on the NixOS side (KVM, QEMU, libvirt, OVMF, virtiofsd) up front
+# avoids re-solving that from scratch like the NixOS Cowork setup did.
+echo ""
+echo "==> [6] Installing Cowork VM prerequisites (KVM/QEMU/libvirt/OVMF)..."
+sudo pacman -S --needed --noconfirm \
+    qemu-desktop \
+    libvirt \
+    edk2-ovmf \
+    virtiofsd \
+    dnsmasq
+
+sudo systemctl enable --now libvirtd
+sudo usermod -aG kvm,libvirt "$USER"
+
+# vhost_vsock — needed for Cowork's host↔guest communication,
+# not always auto-loaded on demand
+if ! grep -q "^vhost_vsock$" /etc/modules-load.d/*.conf 2>/dev/null; then
+    echo "vhost_vsock" | sudo tee /etc/modules-load.d/vhost-vsock.conf > /dev/null
+    sudo modprobe vhost_vsock 2>/dev/null || true
+    echo "    [OK] vhost_vsock set to load at boot."
+fi
+
+echo ""
+echo "==> Installing Claude Desktop from AUR (official build, community-packaged)..."
+echo "    [INFO] Review the PKGBUILD shown before confirming."
+if command -v paru &>/dev/null; then
+    paru -S --needed claude-desktop-unofficial
+elif command -v yay &>/dev/null; then
+    yay -S --needed claude-desktop-unofficial
+else
+    echo "    [WARN] No AUR helper found — install claude-desktop-unofficial manually"
+fi
+echo "    [NOTE] Log out/in (or reboot) for the kvm/libvirt group membership"
+echo "    to take effect before Cowork will work."
+
 echo ""
 echo "=============================================="
 echo " Personal setup complete!"
 echo ""
 echo " Next steps:"
 echo "  - Reboot into CachyOS RC kernel"
-echo "  - Set Curve Optimizer to -40 all core in BIOS"
+echo "  - Set Curve Optimizer to -20 all core in BIOS"
+echo "    (-40 causes instability under sustained kernel"
+echo "    compilation on this 9900X — confirmed via testing)"
 echo "  - Enable PBO in BIOS"
 echo "  - Steam launch option: gamemoderun %command%"
 echo "  - Verify AV1: vainfo | grep AV1"
