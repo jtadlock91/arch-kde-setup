@@ -281,14 +281,14 @@ sudo systemctl enable --now grub-btrfsd.service
 echo "==> Applying system tweaks..."
 
 # ZRAM
-sudo tee /etc/zram-generator.conf > /dev/null << EOF
+sudo tee /etc/systemd/zram-generator.conf > /dev/null << EOF
 [zram0]
 zram-size = ram / 4
 compression-algorithm = zstd
 EOF
 
 # Swappiness
-echo "vm.swappiness=10" | sudo tee /etc/sysctl.d/99-swappiness.conf > /dev/null
+echo "vm.swappiness=100" | sudo tee /etc/sysctl.d/99-swappiness.conf > /dev/null
 
 # THP
 sudo tee /etc/tmpfiles.d/thp.conf > /dev/null << EOF
