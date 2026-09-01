@@ -5,7 +5,7 @@
 # ============================================================
 
 set -e
-
+: <<'EOF'
 # -------------------------------------------------------
 # 0. KDE Unstable (bleeding-edge Plasma / KDE Gear)
 # -------------------------------------------------------
@@ -29,8 +29,8 @@ echo "==> Enabling kde-unstable + extra-testing + core-testing (bleeding-edge Pl
 
 if ! grep -q "^\[kde-unstable\]" /etc/pacman.conf; then
     sudo sed -i '/^\[core\]/i\
-[kde-unstable]\
-Include = /etc/pacman.d/mirrorlist\
+#[kde-unstable]\
+#Include = /etc/pacman.d/mirrorlist\
 \
 [extra-testing]\
 Include = /etc/pacman.d/mirrorlist\
@@ -42,7 +42,7 @@ Include = /etc/pacman.d/mirrorlist\
 else
     echo "    [SKIP] kde-unstable already present in pacman.conf."
 fi
-
+EOF
 echo "==> Updating system..."
 sudo pacman -Syyuu --noconfirm
 

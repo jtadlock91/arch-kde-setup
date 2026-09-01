@@ -105,8 +105,6 @@ case "$GPU_VENDOR" in
         GPU_PROTECTED=(
             mesa
             vulkan-radeon
-            libva-mesa-driver
-            mesa-vdpau
             libva-utils
         )
         ;;
@@ -392,6 +390,19 @@ for pkg in "${EOS_PACKAGES[@]}"; do
     safe_remove "$pkg"
 done
 
+# Removing endeavouros-mirrorlist above deletes the file
+# /etc/pacman.d/endeavouros-mirrorlist, but pacman.conf still has an
+# [endeavouros] repo section pointing at it — leaving that in place
+# breaks pacman.conf parsing for every subsequent pacman call. Strip
+# the whole [endeavouros] block (header, SigLevel, Include) here.
+if ! pacman -Qi endeavouros-mirrorlist &>/dev/null && grep -q "^\[endeavouros\]" /etc/pacman.conf 2>/dev/null; then
+    echo "    [FIX] Removing [endeavouros] repo block from /etc/pacman.conf..."
+    sudo cp /etc/pacman.conf /etc/pacman.conf.bak
+    sudo sh -c "awk '/^\[endeavouros\]/{skip=1;next} skip&&/^\[/{skip=0} skip{next} {print}' /etc/pacman.conf > /etc/pacman.conf.new && mv /etc/pacman.conf.new /etc/pacman.conf"
+else
+    echo "    [SKIP] No [endeavouros] block in /etc/pacman.conf."
+fi
+
 # Replace eos-dracut with standard dracut if needed
 if ! pacman -Qi dracut &>/dev/null; then
     echo "    [FIX] Installing standard dracut..."
@@ -513,6 +524,21 @@ echo ""
 echo "==> [4/6] Verifying systemd services..."
 
 # Display manager
+# plasmalogin (KDE's newer login manager, shipped as the default DM on
+# recent EndeavourOS ISOs) can already own display-manager.service —
+# `systemctl enable sddm` fails outright until that's cleared.
+if systemctl is-enabled plasmalogin &>/dev/null || systemctl is-active plasmalogin &>/dev/null; then
+    echo "    [FIX] Disabling plasmalogin (conflicts with sddm)..."
+    sudo systemctl disable --now plasmalogin 2>/dev/null || true
+fi
+
+DM_SYMLINK="/etc/systemd/system/display-manager.service"
+SDDM_UNIT="/usr/lib/systemd/system/sddm.service"
+if [ -L "$DM_SYMLINK" ] && [ "$(readlink -f "$DM_SYMLINK")" != "$(readlink -f "$SDDM_UNIT")" ]; then
+    echo "    [FIX] Removing stale display-manager.service symlink ($(readlink "$DM_SYMLINK"))..."
+    sudo rm -f "$DM_SYMLINK"
+fi
+
 if systemctl is-enabled sddm &>/dev/null; then
     echo "    [OK] sddm is enabled"
 else
@@ -552,16 +578,12 @@ done
 # -------------------------------------------------------
 echo ""
 echo "==> [5/6] Post-removal verification..."
-VERIFY=(
-    plasma-desktop kwin krunner dolphin kitty
-    pipewire pipewire-alsa pipewire-pulse wireplumber
-    networkmanager plasma-nm plasma-pa
-    sddm wayland qt6-wayland
-    breeze breeze-icons polkit-kde-agent
-    xdg-desktop-portal xdg-desktop-portal-kde
-    mesa
-    "${GPU_PROTECTED[@]}"
-)
+# Verify every package on PROTECTED, not a hand-picked subset — pacman
+# -Rns cascades, so removing an unrelated package can take a protected
+# one down with it (this happened to qt6-wayland; it was only caught
+# because it happened to be hardcoded here). PROTECTED already embeds
+# GPU_PROTECTED, so this covers every GPU vendor branch too.
+VERIFY=("${PROTECTED[@]}")
 
 ALL_OK=true
 for pkg in "${VERIFY[@]}"; do
