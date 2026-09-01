@@ -44,7 +44,7 @@ else
 fi
 
 echo "==> Updating system..."
-sudo pacman -Syyu --noconfirm
+sudo pacman -Syyuu --noconfirm
 
 # -------------------------------------------------------
 # 1. KDE Plasma barebones
@@ -155,7 +155,7 @@ sudo pacman -S --needed --noconfirm mesa libva-utils
 case "$GPU_VENDOR" in
     amd)
         sudo pacman -S --needed --noconfirm \
-            vulkan-radeon libva-mesa-driver mesa-vdpau radeontop
+            vulkan-radeon radeontop
         ;;
     nvidia)
         KERNEL=$(uname -r)

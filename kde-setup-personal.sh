@@ -95,7 +95,7 @@ fi
 # -------------------------------------------------------
 # Anthropic shipped an official Linux beta (June 30, 2026) — Ubuntu/
 # Debian only, officially. aaddrick/claude-desktop-debian repackages
-# that same official .deb for Arch via AUR (claude-desktop-unofficial),
+# that same official .deb for Arch via AUR (claude-desktop),
 # rather than reconstructing the app from scratch. Cowork on Linux
 # runs on a KVM-backed VM; installing the same stack proven working
 # on the NixOS side (KVM, QEMU, libvirt, OVMF, virtiofsd) up front
@@ -124,11 +124,11 @@ echo ""
 echo "==> Installing Claude Desktop from AUR (official build, community-packaged)..."
 echo "    [INFO] Review the PKGBUILD shown before confirming."
 if command -v paru &>/dev/null; then
-    paru -S --needed claude-desktop-unofficial
+    paru -S --needed claude-desktop
 elif command -v yay &>/dev/null; then
-    yay -S --needed claude-desktop-unofficial
+    yay -S --needed claude-desktop
 else
-    echo "    [WARN] No AUR helper found — install claude-desktop-unofficial manually"
+    echo "    [WARN] No AUR helper found — install claude-desktop manually"
 fi
 echo "    [NOTE] Log out/in (or reboot) for the kvm/libvirt group membership"
 echo "    to take effect before Cowork will work."
